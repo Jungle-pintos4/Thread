@@ -290,7 +290,8 @@ thread_exit (void) {
 }
 
 /* CPU를 양보. 현재 스레드는 재우지 않으며
-   스케줄러의 결정에 따라 즉시 다시 스케줄될 수 있음. */
+   스케줄러의 결정에 따라 즉시 다시 스케줄될 수 있음. 
+   다른 스레드로 계속 양보하는거*/
 void
 thread_yield (void) {
 	struct thread *curr = thread_current ();
@@ -322,6 +323,51 @@ void thread_sleep (int64_t wakeup_tick) {
 	thread_block();
 // 이거 중요
 	intr_set_level (old_level);
+}
+
+// 20251106
+/*timer_yield는 대기 상태로 진입이지만 해당 함수는 sleep 상태로 진입, insert할 때 sort*/
+void thread_sleep_sort (int64_t wakeup_tick) {
+	struct thread *curr = thread_current ();
+	enum intr_level old_level;
+
+	ASSERT (!intr_context ());
+// 이거 중요
+	old_level = intr_disable ();
+
+	curr->wakeup_tick = wakeup_tick;
+
+	list_insert_ordered(&sleep_list, &curr->elem, wakeup_tick_less, NULL);
+	thread_block();
+// 이거 중요
+	intr_set_level (old_level);
+}
+
+// 비교 함수
+bool wakeup_tick_less(const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+	struct thread *ta = list_entry(a, struct thread, elem);
+	struct thread *tb = list_entry(b, struct thread, elem);
+	return ta->wakeup_tick < tb->wakeup_tick;
+}
+
+// 20251107
+/*block 상태에 있는 thread wakeup*/
+void thread_awake_sort(int64_t wakeup_tick)
+{
+	if (list_empty(&sleep_list))
+		return;
+
+	while (!list_empty(&sleep_list))
+	{
+		struct thread *t = list_entry(list_pop_front(&sleep_list), struct thread, elem);
+		if (t->wakeup_tick <= wakeup_tick){
+			thread_unblock(t);
+		}else{
+			list_push_front(&sleep_list, &t->elem);
+			break;
+		}
+	}
 }
 
 // 20251107

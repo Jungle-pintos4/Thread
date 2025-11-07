@@ -143,4 +143,6 @@ void do_iret (struct intr_frame *tf);
 void thread_sleep (int64_t time_tick);
 void thread_awake (int64_t wakeup_tick);
 
+void thread_sleep_sort (int64_t time_tick);
+void thread_awake_sort (int64_t wakeup_tick);
 #endif /* threads/thread.h */
