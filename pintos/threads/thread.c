@@ -28,6 +28,9 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* 블록된 쓰레드를 모아 놓는 리스트*/
+static struct list blocked_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -109,6 +112,7 @@ thread_init (void) {
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&destruction_req);
+	list_init (&blocked_list);
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
@@ -243,6 +247,21 @@ thread_unblock (struct thread *t) {
 	list_push_back (&ready_list, &t->elem);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
+}
+
+void thread_check_blocked_list(){
+	int64_t cur_time = timer_ticks();
+
+	while(!list_empty(&blocked_list)){
+		struct list_elem *start = list_begin(&blocked_list);
+		struct thread *th = list_entry(start, struct thread, elem);
+		if(th -> wakeup_tick > cur_time){
+			break;
+		} else {
+			list_pop_front(&blocked_list);
+			thread_unblock(th);
+		}
+	}
 }
 
 /* Returns the name of the running thread. */
@@ -409,6 +428,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+	t->wakeup_tick = -1; /* 잠자고 있지 않음을 -1로 표현 */
+
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -537,6 +558,29 @@ do_schedule(int status) {
 	thread_current ()->status = status;
 	schedule ();
 }
+
+bool 
+less_func(const struct list_elem *a_, const struct list_elem *b_, void *aux){
+	const struct thread *a = list_entry(a_, struct thread, elem);
+	const struct thread *b = list_entry(b_, struct thread, elem);
+
+	return a ->wakeup_tick < b ->wakeup_tick;
+}
+
+void 
+thread_sleep(int64_t ticks)
+{
+    enum intr_level old_level;
+
+    ASSERT(intr_get_level() == INTR_ON);
+    struct thread *cur_thread = thread_current();
+    old_level = intr_disable();
+    cur_thread->wakeup_tick = ticks;
+    list_insert_ordered(&blocked_list, &cur_thread->elem, less_func, NULL);
+    // list_push_back(&blocked_list, &cur_thread -> elem);
+    thread_block();
+    intr_set_level(old_level);
+} 
 
 static void
 schedule (void) {
