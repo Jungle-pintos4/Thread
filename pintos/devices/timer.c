@@ -7,6 +7,7 @@
 #include "threads/io.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include <list.h>
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -16,6 +17,20 @@
 #if TIMER_FREQ > 1000
 #error TIMER_FREQ <= 1000 recommended
 #endif
+
+// blocked된 쓰레드를 저장하는 리스트
+static struct list blocked_list;
+
+static bool value_less (const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED) 
+{
+  // list_entry를 통해서, elem 구조체로 더 상위 구조체인 thread에 접근
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+  
+  // unblock되는 시간이 작은 순서대로 정렬
+  return a->unblock_tick < b->unblock_tick;
+}
+
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
@@ -32,12 +47,16 @@ static void real_time_sleep (int64_t num, int32_t denom);
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
-void
-timer_init (void) {
+void timer_init (void) {
 	/* 8254 input frequency divided by TIMER_FREQ, rounded to
 	   nearest. */
+
+	// blocked_list initialization
+	list_init(&blocked_list);
+
 	uint16_t count = (1193180 + TIMER_FREQ / 2) / TIMER_FREQ;
 
+	// I/O 포트 0x43에, 0x34 데이터 전송
 	outb (0x43, 0x34);    /* CW: counter 0, LSB then MSB, mode 2, binary. */
 	outb (0x40, count & 0xff);
 	outb (0x40, count >> 8);
@@ -45,9 +64,12 @@ timer_init (void) {
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
 
-/* Calibrates loops_per_tick, used to implement brief delays. */
-void
-timer_calibrate (void) {
+/* 
+Calibrates loops_per_tick, used to implement brief delays. 
+
+타이머 교정하는 함수
+*/
+void timer_calibrate (void) {
 	unsigned high_bit, test_bit;
 
 	ASSERT (intr_get_level () == INTR_ON);
@@ -71,8 +93,7 @@ timer_calibrate (void) {
 }
 
 /* Returns the number of timer ticks since the OS booted. */
-int64_t
-timer_ticks (void) {
+int64_t timer_ticks (void) {
 	enum intr_level old_level = intr_disable ();
 	int64_t t = ticks;
 	intr_set_level (old_level);
@@ -80,26 +101,42 @@ timer_ticks (void) {
 	return t;
 }
 
-/* Returns the number of timer ticks elapsed since THEN, which
-   should be a value once returned by timer_ticks(). */
-int64_t
-timer_elapsed (int64_t then) {
+/* 
+Returns the number of timer ticks elapsed since THEN, which
+should be a value once returned by timer_ticks(). 
+
+시간이 얼마나 경과했는지 알려주는 함수
+then 이후로 tick이 발생한 횟수를 반환한다.
+*/
+int64_t timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
 }
 
 /* Suspends execution for approximately TICKS timer ticks. */
-void
-timer_sleep (int64_t ticks) {
-	int64_t start = timer_ticks ();
+void timer_sleep (int64_t ticks) {
+	if (ticks <= 0) {
+		return ;
+	}
 
-	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	int64_t start = timer_ticks ();
+	ASSERT (intr_get_level() == INTR_ON);
+	struct thread *curr = thread_current();
+
+	enum intr_level old_level = intr_disable();
+
+	curr->unblock_tick = start + ticks;
+	list_insert_ordered(&(blocked_list), &(curr)->elem, value_less, NULL); 
+	thread_block();
+
+	intr_set_level(old_level);
+
+	// 공유 자원이니까 블로킹을 해놓은 다음에
+	// sleep list에 넣는다
+	// thread_block()
 }
 
 /* Suspends execution for approximately MS milliseconds. */
-void
-timer_msleep (int64_t ms) {
+void timer_msleep (int64_t ms) {
 	real_time_sleep (ms, 1000);
 }
 
@@ -116,16 +153,27 @@ timer_nsleep (int64_t ns) {
 }
 
 /* Prints timer statistics. */
-void
-timer_print_stats (void) {
+void timer_print_stats (void) {
 	printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
 /* Timer interrupt handler. */
-static void
-timer_interrupt (struct intr_frame *args UNUSED) {
+static void timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
-	thread_tick ();
+
+	int64_t curr_ticks = timer_ticks();
+	enum intr_level old_level = intr_disable ();
+
+	while (!list_empty(&(blocked_list))) {
+		if (list_entry(list_begin(&(blocked_list)), struct thread, elem)->unblock_tick > curr_ticks) {
+			break;
+		}
+
+		thread_unblock(list_entry(list_pop_front(&(blocked_list)), struct thread, elem));
+	}
+
+	intr_set_level(old_level);
+	thread_tick();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

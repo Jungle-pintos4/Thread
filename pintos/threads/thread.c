@@ -28,7 +28,11 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
-/* Idle thread. */
+/* 
+Idle thread. 
+
+CPU가 아무런 할 일도 없을 때, 돌리는 유휴 쓰레드
+*/
 static struct thread *idle_thread;
 
 /* Initial thread, the thread running init.c:main(). */
@@ -240,8 +244,8 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
-	t->status = THREAD_READY;
+	list_push_back (&ready_list, &t->elem); // 리스트 맨 뒤로 보내기
+	t->status = THREAD_READY; // READY 상태로 변경
 	intr_set_level (old_level);
 }
 
@@ -253,9 +257,11 @@ thread_name (void) {
 
 /* Returns the running thread.
    This is running_thread() plus a couple of sanity checks.
-   See the big comment at the top of thread.h for details. */
-struct thread *
-thread_current (void) {
+   See the big comment at the top of thread.h for details. 
+  
+   running 상태인 쓰레드를 반환한다.
+*/
+struct thread * thread_current (void) {
 	struct thread *t = running_thread ();
 
 	/* Make sure T is really a thread.
@@ -294,8 +300,7 @@ thread_exit (void) {
 
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
-void
-thread_yield (void) {
+void thread_yield (void) {
 	struct thread *curr = thread_current ();
 	enum intr_level old_level;
 
@@ -303,8 +308,8 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
-	do_schedule (THREAD_READY);
+		list_push_back (&ready_list, &curr->elem); // 작업 리스트의 맨 뒤로 이동
+	do_schedule (THREAD_READY); // THREAD_READY 상태로 변경되며, 스케쥴러 실행됨 (다른 쓰레드로 교체)
 	intr_set_level (old_level);
 }
 
@@ -524,7 +529,10 @@ thread_launch (struct thread *th) {
 /* Schedules a new process. At entry, interrupts must be off.
  * This function modify current thread's status to status and then
  * finds another thread to run and switches to it.
- * It's not safe to call printf() in the schedule(). */
+ * It's not safe to call printf() in the schedule(). 
+ * 
+ * 현재 running 중인 쓰레드 상태를 status로 변경시키고, 스케쥴러를 즉시 실행한다.
+ * */
 static void
 do_schedule(int status) {
 	ASSERT (intr_get_level () == INTR_OFF);
@@ -538,8 +546,10 @@ do_schedule(int status) {
 	schedule ();
 }
 
-static void
-schedule (void) {
+/*
+다음에 실행할 쓰레드를 선택하고, CPU 제어권을 넘긴다.
+*/
+static void schedule (void) {
 	struct thread *curr = running_thread ();
 	struct thread *next = next_thread_to_run ();
 

@@ -110,7 +110,11 @@ static void pic_end_of_interrupt (int irq);
 /* Interrupt handlers. */
 void intr_handler (struct intr_frame *args);
 
-/* Returns the current interrupt status. */
+/* 
+Returns the current interrupt status. 
+
+현재 CPU가 인터럽트를 받을 준비가 되었는지 (INTR_ON), 되지 않았는지 (INTR_OFF) 상태 정보를 반환한다.
+*/
 enum intr_level
 intr_get_level (void) {
 	uint64_t flags;
@@ -223,7 +227,10 @@ register_handler (uint8_t vec_no, int dpl, enum intr_level level,
 
 /* Registers external interrupt VEC_NO to invoke HANDLER, which
    is named NAME for debugging purposes.  The handler will
-   execute with interrupts disabled. */
+   execute with interrupts disabled. 
+
+   외부 하드웨어 인터럽트를 처리할 핸들러 함수를 등록
+*/
 void
 intr_register_ext (uint8_t vec_no, intr_handler_func *handler,
 		const char *name) {
