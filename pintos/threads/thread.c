@@ -207,6 +207,7 @@ thread_create (const char *name, int priority,
 
 	/* 실행 큐에 추가. */
 	thread_unblock (t);
+	chk_priority_preemption();
 
 	return tid;
 }
@@ -406,15 +407,21 @@ void
 thread_set_priority (int new_priority) {
 	struct thread *cur_thread = thread_current();
 	cur_thread -> priority = new_priority;
-	if(!list_empty(&ready_list)){
-		struct thread *ready_thread = list_entry(list_begin(&ready_list), struct thread, elem);
-		if(ready_thread -> priority > new_priority){
-			thread_yield();
-		}
-	}
+	chk_priority_preemption();
 }
 
-/* 현재 스레드의 우선순위를 반환. */
+void chk_priority_preemption(void)
+{	
+    if (!list_empty(&ready_list))
+    {	
+		struct thread *cur_thread = thread_current();
+        struct thread *ready_thread = list_entry(list_begin(&ready_list), struct thread, elem);
+        if (ready_thread -> priority > cur_thread -> priority)
+        {	
+            thread_yield();
+        }
+    }
+} /* 현재 스레드의 우선순위를 반환. */
 int
 thread_get_priority (void) {
 	return thread_current ()->priority;
