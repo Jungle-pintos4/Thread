@@ -67,6 +67,7 @@ static void schedule (void);
 static tid_t allocate_tid (void);
 
 bool wakeup_tick_less(const struct list_elem *a, const struct list_elem *b, void *aux);
+bool priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 /* T가 유효한 스레드를 가리키는 것으로 보이면 true를 반환. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -238,7 +239,7 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t ->elem, priority_comparison, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -303,7 +304,7 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered (&ready_list, &curr->elem, priority_comparison, NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -353,6 +354,15 @@ bool wakeup_tick_less(const struct list_elem *a, const struct list_elem *b, void
 	return ta->wakeup_tick < tb->wakeup_tick;
 }
 
+// 우선순위 비교 함수 
+bool priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+	struct thread *ta = list_entry(a, struct thread, elem);
+	struct thread *tb = list_entry(b, struct thread, elem);
+	return ta-> priority > tb-> priority;
+}
+
+
 // 20251107
 /*block 상태에 있는 thread wakeup*/
 void thread_awake_sort(int64_t wakeup_tick)
@@ -394,7 +404,14 @@ void thread_awake(int64_t wakeup_tick){
 /* 현재 스레드의 우선순위를 NEW_PRIORITY로 설정. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	struct thread *cur_thread = thread_current();
+	cur_thread -> priority = new_priority;
+	if(!list_empty(&ready_list)){
+		struct thread *ready_thread = list_entry(list_begin(&ready_list), struct thread, elem);
+		if(ready_thread -> priority > new_priority){
+			thread_yield();
+		}
+	}
 }
 
 /* 현재 스레드의 우선순위를 반환. */
