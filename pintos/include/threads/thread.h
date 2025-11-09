@@ -134,6 +134,8 @@ int thread_get_priority (void);
 void thread_set_priority(int);
 
 void chk_priority_preemption(void);
+bool priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux);
+bool wakeup_tick_less(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 int thread_get_nice (void);
 void thread_set_nice (int);

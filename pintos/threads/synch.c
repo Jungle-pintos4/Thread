@@ -41,10 +41,13 @@
 
    - up or "V": increment the value (and wake up one waiting
    thread, if any). */
+
+
+   
 void
 sema_init (struct semaphore *sema, unsigned value) {
 	ASSERT (sema != NULL);
-
+	/* 세마포어 변수를 초기화, 세마포어(자원)를 기다리는 블록 리스트도 초기화 */
 	sema->value = value;
 	list_init (&sema->waiters);
 }
@@ -57,18 +60,20 @@ sema_init (struct semaphore *sema, unsigned value) {
    interrupts disabled, but if it sleeps then the next scheduled
    thread will probably turn interrupts back on. This is
    sema_down function. */
+
 void
 sema_down (struct semaphore *sema) {
 	enum intr_level old_level;
 
 	ASSERT (sema != NULL);
 	ASSERT (!intr_context ());
-
+	/* 세마포어 값이 0이면 블록 리스트에 추가함*/
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
-		thread_block ();
+		list_insert_ordered(&sema -> waiters, &thread_current() -> elem, priority_comparison, NULL);
+		thread_block (); /* 블록 되고 깨어나면 다시 while 검사  */
 	}
+	/* atomic 하게 decrement */
 	sema->value--;
 	intr_set_level (old_level);
 }
@@ -94,7 +99,7 @@ sema_try_down (struct semaphore *sema) {
 	else
 		success = false;
 	intr_set_level (old_level);
-
+	/* Non-blocking Version 락 흭득 실패시 바로 포기 */
 	return success;
 }
 
@@ -109,10 +114,13 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
+	if (!list_empty (&sema->waiters)){
+		list_sort(&sema -> waiters, priority_comparison, NULL);
 		thread_unblock (list_entry (list_pop_front (&sema->waiters),
 					struct thread, elem));
+		}
 	sema->value++;
+	chk_priority_preemption();
 	intr_set_level (old_level);
 }
 
@@ -252,6 +260,32 @@ cond_init (struct condition *cond) {
 	list_init (&cond->waiters);
 }
 
+
+bool 
+cmp_sem_priority(const struct list_elem *_a, const struct list_elem *_b, void *aux)
+{
+	struct semaphore_elem *a = list_entry(_a, struct semaphore_elem, elem);
+	struct semaphore_elem *b = list_entry(_b, struct semaphore_elem, elem);
+
+	struct list a_waitlist = a -> semaphore.waiters;
+	struct list b_waitlist = b -> semaphore.waiters;
+
+	if(list_empty(&a_waitlist) || list_empty(&b_waitlist)){
+		return false;
+	}
+
+	struct list_elem *a_elem = list_begin(&a_waitlist);
+	struct list_elem *b_elem = list_begin(&b_waitlist);
+
+	struct thread *ta = list_entry(a_elem, struct thread, elem);
+	struct thread *tb = list_entry(b_elem, struct thread, elem);
+
+	return ta->priority > tb->priority;
+}
+
+
+
+
 /* Atomically releases LOCK and waits for COND to be signaled by
    some other piece of code.  After COND is signaled, LOCK is
    reacquired before returning.  LOCK must be held before calling
@@ -282,7 +316,7 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
-	list_push_back (&cond->waiters, &waiter.elem);
+	list_insert_ordered(&cond -> waiters, &waiter.elem, cmp_sem_priority, NULL);
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);
@@ -302,9 +336,13 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 
-	if (!list_empty (&cond->waiters))
+	if (!list_empty (&cond->waiters)){
+		list_sort(&cond-> waiters, cmp_sem_priority, NULL);
 		sema_up (&list_entry (list_pop_front (&cond->waiters),
-					struct semaphore_elem, elem)->semaphore);
+					struct semaphore_elem, elem)->semaphore);	
+	}
+		
+				
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by

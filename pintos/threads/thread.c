@@ -66,8 +66,6 @@ static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
 
-bool wakeup_tick_less(const struct list_elem *a, const struct list_elem *b, void *aux);
-bool priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 /* T가 유효한 스레드를 가리키는 것으로 보이면 true를 반환. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -417,8 +415,12 @@ void chk_priority_preemption(void)
 		struct thread *cur_thread = thread_current();
         struct thread *ready_thread = list_entry(list_begin(&ready_list), struct thread, elem);
         if (ready_thread -> priority > cur_thread -> priority)
-        {	
-            thread_yield();
+        {
+			if(intr_context()){
+				intr_yield_on_return();
+			} else {
+            	thread_yield();
+			}
         }
     }
 } /* 현재 스레드의 우선순위를 반환. */
@@ -564,8 +566,8 @@ do_iret (struct intr_frame *tf) {
    실제로는 printf()를 함수 끝에 추가해야 함을 의미함. */
 static void
 thread_launch (struct thread *th) {
-	uint64_t tf_cur = (uint64_t) &running_thread ()->tf;
-	uint64_t tf = (uint64_t) &th->tf;
+	uint64_t tf_cur = (uint64_t) &running_thread ()->tf; /* 현재 쓰레드(교체될)의 문맥 주소*/
+	uint64_t tf = (uint64_t) &th->tf; /* 새로 실행된 쓰레드의 문맥*/
 	ASSERT (intr_get_level () == INTR_OFF);
 
 	/* 메인 전환 로직.
