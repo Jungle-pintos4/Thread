@@ -205,6 +205,7 @@ thread_create (const char *name, int priority,
 
 	/* 실행 큐에 추가. */
 	thread_unblock (t);
+	/* 선점 로직을 unblock에 넣어야 할까? 말까?를 고민해 보기 -> 만약 넣는다면 sema_up 순서 수정 필요*/
 	chk_priority_preemption();
 
 	return tid;
@@ -414,7 +415,7 @@ void chk_priority_preemption(void)
     {	
 		struct thread *cur_thread = thread_current();
         struct thread *ready_thread = list_entry(list_begin(&ready_list), struct thread, elem);
-        if (ready_thread -> priority > cur_thread -> priority)
+        if (ready_thread -> priority > cur_thread -> priority) /* idle_thread check 나중에 추가하기  */
         {
 			if(intr_context()){
 				intr_yield_on_return();

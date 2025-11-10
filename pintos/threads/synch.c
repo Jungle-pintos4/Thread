@@ -69,7 +69,7 @@ sema_down (struct semaphore *sema) {
 	ASSERT (!intr_context ());
 	/* 세마포어 값이 0이면 블록 리스트에 추가함*/
 	old_level = intr_disable ();
-	while (sema->value == 0) {
+	while (sema-> value == 0) {
 		list_insert_ordered(&sema -> waiters, &thread_current() -> elem, priority_comparison, NULL);
 		thread_block (); /* 블록 되고 깨어나면 다시 while 검사  */
 	}
@@ -284,8 +284,6 @@ cmp_sem_priority(const struct list_elem *_a, const struct list_elem *_b, void *a
 }
 
 
-
-
 /* Atomically releases LOCK and waits for COND to be signaled by
    some other piece of code.  After COND is signaled, LOCK is
    reacquired before returning.  LOCK must be held before calling
@@ -316,7 +314,8 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
-	list_insert_ordered(&cond -> waiters, &waiter.elem, cmp_sem_priority, NULL);
+	list_push_back(&cond -> waiters, &waiter.elem);
+	//list_insert_ordered(&cond -> waiters, &waiter.elem, cmp_sem_priority, NULL);
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);
