@@ -41,6 +41,9 @@
 
    - up or "V": increment the value (and wake up one waiting
    thread, if any). */
+
+static bool priority_less(const struct list_elem *a, const struct list_elem *b, void *aux);   
+
 void
 sema_init (struct semaphore *sema, unsigned value) {
 	ASSERT (sema != NULL);
@@ -72,6 +75,15 @@ sema_down (struct semaphore *sema) {
 	sema->value--;
 	intr_set_level (old_level);
 }
+
+// 비교 함수: list_max에서 사용하므로 "a < b"를 반환해야 max를 찾을 수 있음
+bool priority_less(const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+	struct thread *ta = list_entry(a, struct thread, elem);
+	struct thread *tb = list_entry(b, struct thread, elem);
+	return ta->priority < tb->priority;  // a의 priority가 더 작으면 true
+}
+
 
 /* Down or "P" operation on a semaphore, but only if the
    semaphore is not already 0.  Returns true if the semaphore is
@@ -105,15 +117,22 @@ sema_try_down (struct semaphore *sema) {
 void
 sema_up (struct semaphore *sema) {
 	enum intr_level old_level;
+	struct list_elem *max_elem;
 
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	if (!list_empty (&sema->waiters)){
+		max_elem = list_max (&sema->waiters, priority_less, NULL);
+   		list_remove (max_elem);
+   		thread_unblock (list_entry (max_elem, struct thread, elem));
+	}
 	sema->value++;
 	intr_set_level (old_level);
+// thread 재비치를 위한 yield 호출 -> 해당 함수는 interrupt를 받으면 안됨
+	if(!intr_context()){
+		thread_yield();
+	}
 }
 
 static void sema_test_helper (void *sema_);
@@ -245,6 +264,28 @@ struct semaphore_elem {
 /* Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
    code to receive the signal and act upon it. */
+
+/*
+  cond->waiters (semaphore_elem의 리스트)
+    ├─ semaphore_elem 1
+    │   └─ semaphore.waiters (thread 리스트)
+    │       └─ thread A  ← priority 있음!
+    │
+    ├─ semaphore_elem 2
+    │   └─ semaphore.waiters (thread 리스트)
+    │       └─ thread B  ← priority 있음!
+*/
+
+bool cond_priority_less(const struct list_elem *a, const struct list_elem *b, void *aux) {
+	struct semaphore_elem *sema_a = list_entry(a, struct semaphore_elem, elem);
+    struct semaphore_elem *sema_b = list_entry(b, struct semaphore_elem, elem);
+
+	struct thread *thread_a = list_entry(list_begin(&sema_a -> semaphore.waiters), struct thread, elem);
+	struct thread *thread_b = list_entry(list_begin(&sema_b -> semaphore.waiters), struct thread, elem);
+	// a의 priority가 더 작으면 true
+	return thread_a->priority < thread_b->priority;  
+}
+
 void
 cond_init (struct condition *cond) {
 	ASSERT (cond != NULL);
@@ -281,7 +322,11 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 
+	// semaphore 초기화 
 	sema_init (&waiter.semaphore, 0);
+	// semaphore에서 사용되는 thread들을 대기 큐로 이동
+	// 우선순위에 맞게끔 list_push
+	// list_insert_ordered(&cond->waiters, &waiter.elem, cond_priority_less, NULL);
 	list_push_back (&cond->waiters, &waiter.elem);
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
@@ -302,9 +347,13 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 
-	if (!list_empty (&cond->waiters))
-		sema_up (&list_entry (list_pop_front (&cond->waiters),
-					struct semaphore_elem, elem)->semaphore);
+	struct list_elem *max_elem;
+
+	if (!list_empty (&cond->waiters)){
+		max_elem = list_max (&cond->waiters, cond_priority_less, NULL);
+		list_remove (max_elem);
+		sema_up (&list_entry (max_elem, struct semaphore_elem, elem)->semaphore);
+	}
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
