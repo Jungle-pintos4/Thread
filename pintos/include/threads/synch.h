@@ -1,5 +1,6 @@
 #ifndef THREADS_SYNCH_H
 #define THREADS_SYNCH_H
+#define NESTING_DEPTH 8
 
 #include <list.h>
 #include <stdbool.h>
@@ -23,7 +24,10 @@ struct lock {
 };
 
 void lock_init (struct lock *);
-void lock_acquire (struct lock *);
+void lock_acquire(struct lock *);
+void donate_priority(void);
+void remove_with_lock(struct lock *lock);
+void refresh_priority(void);
 bool lock_try_acquire (struct lock *);
 void lock_release (struct lock *);
 bool lock_held_by_current_thread (const struct lock *);

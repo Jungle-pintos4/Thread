@@ -195,17 +195,71 @@ lock_acquire (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
+	struct thread *cur = thread_current();
 
+	enum intr_level old_level = intr_disable();
+	if(lock -> holder){
+		list_push_back(&lock -> holder -> donations, &cur ->d_elem);
+		cur -> waiting_on_lock = lock;
+		donate_priority();
+	}
+    intr_set_level(old_level); 
 	sema_down (&lock->semaphore);
-	lock->holder = thread_current ();
+	cur ->waiting_on_lock = NULL;
+	lock->holder = cur;
 }
 
-/* Tries to acquires LOCK and returns true if successful or false
-   on failure.  The lock must not already be held by the current
-   thread.
+void remove_with_lock(struct lock *lock){
+	struct thread *cur = thread_current();
+	struct list_elem *d_elem = list_begin(&cur ->donations);
 
-   This function will not sleep, so it may be called within an
-   interrupt handler. */
+	while(d_elem != list_end(&cur ->donations)){
+		struct thread *t = list_entry(d_elem, struct thread, d_elem);
+		if(lock == t -> waiting_on_lock){
+			d_elem = list_remove(&t -> d_elem);
+		} else{
+			d_elem = list_next(d_elem);
+		}
+	}
+}
+
+void refresh_priority(void){
+	struct thread *cur = thread_current();
+	cur -> priority = cur -> original_priority;
+
+	if(list_empty(&cur -> donations)){
+		return;
+	}
+
+	list_sort(&cur -> donations, priority_comparison, NULL);
+	struct thread *max_thread = list_entry(list_front(&cur -> donations), struct thread, d_elem);
+	if(max_thread -> priority > cur -> priority){
+		cur -> priority = max_thread ->priority;
+	}
+}
+
+void donate_priority(void)
+{
+	struct thread *cur = thread_current();
+
+	while(cur -> waiting_on_lock != NULL){
+		struct thread *holder = cur -> waiting_on_lock ->holder;
+
+		if(cur -> priority > holder -> priority){
+			holder -> priority = cur -> priority;
+			cur  = holder;
+		} else{
+			break;
+		}
+	}
+} 
+
+/* Tries to acquires LOCK and returns true if successful or false
+    on failure.  The lock must not already be held by the current
+    thread.
+
+    This function will not sleep, so it may be called within an
+    interrupt handler. */
 bool
 lock_try_acquire (struct lock *lock) {
 	bool success;
@@ -229,6 +283,9 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
+
+	remove_with_lock(lock);
+	refresh_priority();
 
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
