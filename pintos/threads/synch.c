@@ -207,8 +207,20 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	struct thread *curr = thread_current();
+	curr->wait_on_lock = lock;
+
+	if (lock->holder != NULL && lock->holder->priority < curr->priority) {
+		// holder의 donations 리스트에 현재 thread 추가
+		list_push_back(&lock->holder->donations, &curr->donation_elem);
+		// Nested donation: holder가 또 다른 lock을 기다리면 chain 따라가기
+   		donate_priority(lock);
+	}
+
 	sema_down (&lock->semaphore);
-	lock->holder = thread_current ();
+
+	curr->wait_on_lock = NULL;
+	lock->holder = curr;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -240,6 +252,9 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
+
+	remove_with_lock(lock);
+	refresh_priority();
 
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
