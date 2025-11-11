@@ -85,6 +85,14 @@ struct thread {
 	enum thread_status status;          /* 스레드 상태. */
 	char name[16];                      /* 이름 (디버깅 목적). */
 	int priority;                       /* 우선순위. */
+	int original_priority; 				/* 원래 우선순위 */
+	struct lock *waiting_on_lock;		/* 기다리고 있는 락*/
+	
+	/* 후원자 리스트  */
+	struct list donations;
+
+	/* 후원자 리스트 내의 원소(내가 후원하면 리스트에 들어감) */
+	struct list_elem d_elem;
 
 	/* thread.c와 synch.c가 공유함. */
 	struct list_elem elem;              /* 리스트 요소. */
@@ -131,7 +139,11 @@ void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
 int thread_get_priority (void);
-void thread_set_priority (int);
+void thread_set_priority(int);
+
+void chk_priority_preemption(void);
+bool priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux);
+bool wakeup_tick_less(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
