@@ -67,7 +67,8 @@ static void schedule (void);
 static tid_t allocate_tid (void);
 
 bool wakeup_tick_less(const struct list_elem *a, const struct list_elem *b, void *aux);
-
+bool priority_less(const struct list_elem *a, const struct list_elem *b, void *aux);
+bool cmp_donation_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
 /* T가 유효한 스레드를 가리키는 것으로 보이면 true를 반환. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
 
@@ -206,7 +207,9 @@ thread_create (const char *name, int priority,
 
 	/* 실행 큐에 추가. */
 	thread_unblock (t);
-
+	if (t->priority > thread_current()->priority){
+		thread_yield();
+	}
 	return tid;
 }
 
@@ -238,9 +241,18 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	// list_push_back (&ready_list, &t->elem);
+	list_insert_ordered(&ready_list,  &t->elem, priority_less, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
+}
+
+// 비교 함수
+bool priority_less(const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+	struct thread *ta = list_entry(a, struct thread, elem);
+	struct thread *tb = list_entry(b, struct thread, elem);
+	return ta->priority > tb->priority;  // list_insert_ordered용: 높은 priority가 앞으로
 }
 
 
@@ -303,7 +315,8 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		// list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list,  &curr->elem, priority_less, NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -394,7 +407,9 @@ void thread_awake(int64_t wakeup_tick){
 /* 현재 스레드의 우선순위를 NEW_PRIORITY로 설정. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	thread_current()->original_priority = new_priority;
+	refresh_priority();
+	thread_yield();
 }
 
 /* 현재 스레드의 우선순위를 반환. */
@@ -488,6 +503,9 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+	t->original_priority = priority;
+	t->wait_on_lock = NULL;
+	list_init(&t->donations);
 }
 
 /* 스케줄될 다음 스레드를 선택하여 반환. 실행 큐가 비어있지 않다면
@@ -660,3 +678,73 @@ allocate_tid (void) {
 
 	return tid;
 }
+
+// priority donate구현
+void donate_priority(struct lock *lock){
+	struct thread *holder = lock->holder;
+	struct thread *curr = thread_current();
+	// 무한 루프 방지 (최대 8 depth) NESTING_DEPTH
+	int depth = 0;
+
+	// Nested donation: chain을 따라가면서 priority 전파
+	while (holder != NULL && depth < 8) {
+		// 현재 holder의 priority 업데이트
+		holder->priority = curr->priority;
+
+		// holder가 또 다른 lock을 기다리지 않으면 종료
+		if (holder->wait_on_lock == NULL) {
+			break;
+		}
+
+		// 다음 holder로 이동 (chain 따라가기)
+		holder = holder->wait_on_lock->holder;
+		depth++;
+	}
+};
+
+void remove_with_lock(struct lock *lock){
+	struct thread *curr = thread_current();
+	struct list_elem *e;
+
+	e = list_begin(&curr->donations);
+
+	// 현재 스레드의 donation 목록을 순회..
+	while(e != list_end(&curr->donations)){
+		struct thread *t = list_entry(e, struct thread, donation_elem);
+		
+		// 스레드의 lock이 같은게 있으면 해제. 
+		if(t->wait_on_lock == lock){
+			e = list_remove(e);
+		}else{
+			e = list_next(e);
+		}
+	}
+};
+
+void refresh_priority(void){
+	struct thread *curr = thread_current();
+
+	curr->priority = curr->original_priority;
+
+	if(!list_empty(&curr->donations)){
+		struct list_elem *e;
+		e = list_max(&curr->donations, cmp_donation_priority, NULL);
+		// list_elem을 thread로 변환
+		struct thread *max_thread = list_entry(e, struct thread, donation_elem);
+
+		// max_thread의 priority와 비교
+		if (max_thread->priority > curr->priority) {
+			curr->priority = max_thread->priority;
+		}
+	}
+};
+
+// 비교 함수
+bool cmp_donation_priority(const struct list_elem *a, const struct list_elem *b, void *aux)
+  {
+      struct thread *ta = list_entry(a, struct thread, donation_elem); 
+      struct thread *tb = list_entry(b, struct thread, donation_elem);
+      return ta->priority < tb->priority; 
+  }
+
+

@@ -104,6 +104,13 @@ struct thread {
 
 	// time_sleep에서 깨어날 시간
 	int64_t wakeup_tick;
+	// 원래 priority (donation 전)
+	int original_priority;
+	struct lock *wait_on_lock;
+	// 이 thread에게 donate한 thread들의 리스트
+	struct list donations;
+	 // donations 리스트의 elem
+    struct list_elem donation_elem; 
 };
 
 /* false(기본값)이면 라운드 로빈 스케줄러 사용.
@@ -145,4 +152,10 @@ void thread_awake (int64_t wakeup_tick);
 
 void thread_sleep_sort (int64_t time_tick);
 void thread_awake_sort (int64_t wakeup_tick);
+
+// priority donate구현
+void donate_priority(struct lock *lock);
+void remove_with_lock(struct lock *lock);
+void refresh_priority(void);
+
 #endif /* threads/thread.h */
