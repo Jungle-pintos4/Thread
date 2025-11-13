@@ -94,6 +94,11 @@ struct thread {
 	struct lock *waiting_lock;			/* 현재 쓰레드가 기다리고 있는 lock */
 	struct list *waiting_list; 			/* 현재 쓰레드가 block 되어서 대기하고 있는 리스트의 위치 */
 
+	// mlfqs를 위해서 필요
+	struct list_elem all_elem;			/* all_list에 삽입될 리스트 요소 */
+	int nice; 							/* 쓰레드의 nice 값 */
+	int recent_cpu;						/* 쓰레드가 최근에 얼마나 많은 CPU 자원을 할당받았는지 계산 */
+
 #ifdef USERPROG
 	/* userprog/process.c가 소유함. */
 	uint64_t *pml4;                     /* 페이지 맵 레벨 4 */
@@ -147,12 +152,18 @@ int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
 
-void thread_sleep (int64_t time_tick);
-void thread_awake (int64_t wakeup_tick);
-
 void thread_sleep_sort (int64_t time_tick);
 void thread_awake_sort (int64_t wakeup_tick);
 
-void thread_preemption(struct thread *thread);
+void thread_preemption(void);
 void thread_donate_priority(struct thread *thread);
+struct thread* thread_highest_ready_priority(void);
+
+/* 아래는 mlfqs를 위한 함수들 */
+int mlfqs_calculate_priority(struct thread *t);
+void mlfqs_update_all_priority();
+void mlfqs_load_avg (void);
+void mlfqs_recent_cpu();
+void mlfqs_increase_recent_cpu();
+
 #endif /* threads/thread.h */
