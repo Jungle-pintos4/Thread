@@ -94,9 +94,6 @@ timer_sleep (int64_t ticks) {
 	ASSERT (intr_get_level () == INTR_ON);
 	
 	thread_sleep_sort(start + ticks);
-	// thread_sleep(start + ticks);
-	// while (timer_elapsed (start) < ticks)
-	// 	thread_yield ();
 }
 
 /* 약 MS 밀리초 동안 실행을 일시 중단. */
@@ -127,9 +124,19 @@ timer_print_stats (void) {
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
-	thread_tick ();
+
+	if (thread_mlfqs) {
+		mlfqs_increase_recent_cpu(); // 매 틱마다 실행
+
+		if (ticks % TIMER_FREQ == 0) // 1초마다 실행 (load_avg, 모든 쓰레드의 recent_cpu 업데이트)
+			mlfqs_load_avg();
+
+		if (ticks % 4 == 0)  // 4틱마다 실행 (모든 쓰레드의 우선순위 업데이트)
+			mlfqs_update_all_priority();	
+	}
+
 	thread_awake_sort(ticks);
-	// thread_awake(ticks);
+	thread_tick ();
 }
 
 /* LOOPS 반복이 하나 이상의 타이머 틱을 기다리면 true를 반환,

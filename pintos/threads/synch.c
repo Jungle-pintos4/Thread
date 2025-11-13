@@ -119,7 +119,7 @@ sema_up (struct semaphore *sema) {
 	sema->value++;
 
 	if (unblocked_thread) {
-		thread_preemption(unblocked_thread);
+		thread_preemption();
 	}
 		
 	intr_set_level (old_level);
