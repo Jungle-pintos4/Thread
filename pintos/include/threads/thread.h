@@ -28,6 +28,9 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* 기본 우선순위. */
 #define PRI_MAX 63                      /* 최고 우선순위. */
 
+#define DEFAULT_NICE 0
+#define DEFAULT_RECENT_CPU 0
+
 /* 커널 스레드 또는 사용자 프로세스.
  *
  * 각 스레드 구조체는 자체 4 kB 페이지에 저장됨. 스레드 구조체
@@ -88,6 +91,7 @@ struct thread {
 
 	/* thread.c와 synch.c가 공유함. */
 	struct list_elem elem;              /* 리스트 요소. */
+	struct list_elem all_elem;          /* all_list를 위한 리스트 요소 (MLFQS용). */
 
 	struct list lock_list; 				/* 현재 쓰레드가 보유하고 있는 락 리스트 */
 	int original_priority; 	 			/* 쓰레드의 원래 우선순위 (백업용으로 저장, 수정 X) */
@@ -109,6 +113,9 @@ struct thread {
 
 	// time_sleep에서 깨어날 시간
 	int64_t wakeup_tick;
+
+	int nice;
+	int64_t recent_cpu;
 };
 
 /* false(기본값)이면 라운드 로빈 스케줄러 사용.
@@ -121,7 +128,7 @@ bool priority_more(const struct list_elem *a, const struct list_elem *b, void *a
 void thread_init (void);
 void thread_start (void);
 
-void thread_tick (void);
+void thread_tick (int64_t tick);
 void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
@@ -155,4 +162,11 @@ void thread_awake_sort (int64_t wakeup_tick);
 
 void thread_preemption(struct thread *thread);
 void thread_donate_priority(struct thread *thread);
+
+/*multi level feedback queue*/
+void mlfqs_priority (struct thread *t);
+void mlfqs_recent_cpu (struct thread *t);
+void mlfqs_load_avg (void);
+void mlfqs_increment (void);
+void mlfqs_recalc (void);
 #endif /* threads/thread.h */

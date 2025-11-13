@@ -266,6 +266,10 @@ lock_release (struct lock *lock) {
 	2-2. original_priority와 해당 값 비교해서 더 큰 값으로 priority 설정하기 (락 보유한 거 없으면 그냥 original_priority)
 */
 void refresh_priority(void) {
+	/* MLFQ 모드에서는 priority donation을 하지 않음 */
+	if (thread_mlfqs)
+		return;
+
 	enum intr_level old_level = intr_disable ();
 
 	int rescheduled_priority = thread_current()->original_priority;
